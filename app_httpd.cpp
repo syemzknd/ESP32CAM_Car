@@ -344,8 +344,9 @@ static esp_err_t index_handler(httpd_req_t *req){
     String page = "";
     page += "<!DOCTYPE html><html><head>";
     page += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0\">";
-    page += "<style>body { display: flex; flex-direction: row; height: 100vh; margin: 0; font-size: 14px; } #left { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; } #center { flex: 2; display: flex; align-items: center; justify-content: center; } #right { flex: 1; display: flex; flex-direction: column; justify-content: space-around; align-items: center; } #joystick { width: 100%; height: 100%; border: 1px solid black; } #stream { width: 100%; height: 100%; object-fit: contain; } button { width: 100%; height: 50px; font-size: 12px; margin: 5px 0; }</style>";
+    page += "<style>body { display: flex; flex-direction: row; height: 100vh; margin: 0; font-size: 14px; overflow: hidden; } #left { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; } #center { flex: 2; display: flex; align-items: center; justify-content: center; } #right { flex: 1; display: flex; flex-direction: column; justify-content: space-around; align-items: center; } #joystick { width: 100%; height: 100%; border: 1px solid black; } #stream { width: 100%; height: 100%; object-fit: contain; } button { width: 100%; height: 50px; font-size: 12px; margin: 5px 0; } #fullscreenBtn { position: fixed; top: 10px; right: 10px; z-index: 1000; width: auto; height: auto; padding: 5px 10px; }</style>";
     page += "</head><body>";
+    page += "<button id=\"fullscreenBtn\">全屏</button>";
     page += "<div id=\"left\">";
     page += "<button id=\"ledBtn\">Toggle LED</button>";
     page += "<canvas id=\"joystick\" width=\"200\" height=\"200\"></canvas>";
@@ -380,6 +381,7 @@ static esp_err_t index_handler(httpd_req_t *req){
     page += "document.getElementById('stopBtn').onclick = () => { fetch('/stop'); throttle = 0; steer = 0; stickX = centerX; stickY = centerY; draw(); };";
     page += "document.getElementById('accelBtn').onclick = () => { speedMultiplier = Math.min(speedMultiplier + 0.5, 3); };";
     page += "document.getElementById('decelBtn').onclick = () => { speedMultiplier = Math.max(speedMultiplier - 0.5, 0.2); };";
+    page += "document.getElementById('fullscreenBtn').onclick = () => { if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); } else if (document.documentElement.webkitRequestFullscreen) { document.documentElement.webkitRequestFullscreen(); } else if (document.documentElement.msRequestFullscreen) { document.documentElement.msRequestFullscreen(); } };";
     page += "}";
     page += "</script>";
     page += "</body></html>";
