@@ -90,6 +90,18 @@ void setup() {
   pinMode(gpRf, OUTPUT); //Right Backward
   pinMode(gpLed, OUTPUT); //Light
 
+  // PWM setup for continuous motor control
+  #define PWM_FREQ  1000
+  #define PWM_RES   8   // 0~255
+  ledcSetup(0, PWM_FREQ, PWM_RES); // Left Forward
+  ledcSetup(1, PWM_FREQ, PWM_RES); // Left Backward
+  ledcSetup(2, PWM_FREQ, PWM_RES); // Right Forward
+  ledcSetup(3, PWM_FREQ, PWM_RES); // Right Backward
+  ledcAttachPin(gpLf, 0);
+  ledcAttachPin(gpLb, 1);
+  ledcAttachPin(gpRf, 2);
+  ledcAttachPin(gpRb, 3);
+
   //initialize
   digitalWrite(gpLb, LOW);
   digitalWrite(gpLf, LOW);

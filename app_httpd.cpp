@@ -18,6 +18,10 @@ extern int gpLed;
 extern String WiFiAddr;
 
 void WheelAct(int nLf, int nLb, int nRf, int nRb);
+void Drive(int throttle, int steer);
+void setMotor(int left, int right);
+void setOneMotor(int chF, int chB, int val);
+void handle_control_message(char* msg);
 
 typedef struct {
         size_t size; //number of values used for filtering
@@ -40,6 +44,7 @@ static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 static ra_filter_t ra_filter;
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
+static httpd_handle_t ws_server = NULL;
 
 static ra_filter_t * ra_filter_init(ra_filter_t * filter, size_t sample_size){
     memset(filter, 0, sizeof(ra_filter_t));
@@ -297,27 +302,70 @@ static esp_err_t status_handler(httpd_req_t *req){
     return httpd_resp_send(req, json_response, strlen(json_response));
 }
 
+static esp_err_t ws_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_GET) {
+        // WebSocket handshake
+        return ESP_OK;
+    }
+
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(ws_pkt));
+    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (ws_pkt.len > 0) {
+        ws_pkt.payload = (uint8_t*)malloc(ws_pkt.len + 1);
+        if (ws_pkt.payload == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        if (ret != ESP_OK) {
+            free(ws_pkt.payload);
+            return ret;
+        }
+        ws_pkt.payload[ws_pkt.len] = 0;
+
+        // Handle control message
+        handle_control_message((char*)ws_pkt.payload);
+
+        free(ws_pkt.payload);
+    }
+
+    return ESP_OK;
+}
+
 static esp_err_t index_handler(httpd_req_t *req){
     httpd_resp_set_type(req, "text/html");
     String page = "";
      page += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0\">\n";
- page += "<script>var xhttp = new XMLHttpRequest();</script>";
- page += "<script>function getsend(arg) { xhttp.open('GET', arg +'?' + new Date().getTime(), true); xhttp.send() } </script>";
+ page += "<script>var ws = new WebSocket('ws://' + window.location.hostname + ':82/ws');</script>";
+ page += "<script>var throttle = 0; var steer = 0;</script>";
+ page += "<script>function sendControl() { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({t: throttle, s: steer})); } }</script>";
+ page += "<script>setInterval(sendControl, 50);</script>";  // Send every 20ms
+ page += "<script>function updateThrottle(val) { throttle = val; }</script>";
+ page += "<script>function updateSteer(val) { steer = val; }</script>";
  //page += "<p align=center><IMG SRC='http://" + WiFiAddr + ":81/stream' style='width:280px;'></p><br/><br/>";
  page += "<p align=center><IMG SRC='http://" + WiFiAddr + ":81/stream' style='width:300px; transform:rotate(180deg);'></p><br/><br/>";
  
- page += "<p align=center> <button style=background-color:lightgrey;width:90px;height:80px onmousedown=getsend('go') onmouseup=getsend('stop') ontouchstart=getsend('go') ontouchend=getsend('stop') ><b>Forward</b></button> </p>";
+ page += "<p align=center> <input type='range' min='-100' max='100' value='0' oninput='updateThrottle(this.value)' style='width:200px;'></p>";
  page += "<p align=center>";
- page += "<button style=background-color:lightgrey;width:90px;height:80px; onmousedown=getsend('left') onmouseup=getsend('stop') ontouchstart=getsend('left') ontouchend=getsend('stop')><b>Left</b></button>&nbsp;";
- page += "<button style=background-color:indianred;width:90px;height:80px onmousedown=getsend('stop') onmouseup=getsend('stop')><b>Stop</b></button>&nbsp;";
- page += "<button style=background-color:lightgrey;width:90px;height:80px onmousedown=getsend('right') onmouseup=getsend('stop') ontouchstart=getsend('right') ontouchend=getsend('stop')><b>Right</b></button>";
+ page += "<button onclick=\"fetch('/go')\" style='width:80px;height:40px;'>前进</button>";
+ page += "<button onclick=\"fetch('/back')\" style='width:80px;height:40px;'>后退</button>";
+ page += "</p>";
+ page += "<p align=center>";
+ page += "<button onclick=\"fetch('/left')\" style='width:80px;height:40px;'>左转</button>";
+ page += "<button onclick=\"fetch('/right')\" style='width:80px;height:40px;'>右转</button>";
+ page += "<button onclick=\"fetch('/stop')\" style='width:80px;height:40px;'>停止</button>";
  page += "</p>";
 
- page += "<p align=center><button style=background-color:lightgrey;width:90px;height:80px onmousedown=getsend('back') onmouseup=getsend('stop') ontouchstart=getsend('back') ontouchend=getsend('stop') ><b>Backward</b></button></p>";  
-
  page += "<p align=center>";
- page += "<button style=background-color:yellow;width:140px;height:40px onmousedown=getsend('ledon')><b>Light ON</b></button>";
- page += "<button style=background-color:yellow;width:140px;height:40px onmousedown=getsend('ledoff')><b>Light OFF</b></button>";
+ page += "<button onclick=\"fetch('/ledon')\" style=background-color:yellow;width:140px;height:40px><b>Light ON</b></button>";
+ page += "<button onclick=\"fetch('/ledoff')\" style=background-color:yellow;width:140px;height:40px><b>Light OFF</b></button>";
  page += "</p>";
  
     return httpd_resp_send(req, &page[0], strlen(&page[0]));
@@ -325,35 +373,35 @@ static esp_err_t index_handler(httpd_req_t *req){
 
 
 static esp_err_t go_handler(httpd_req_t *req){
-    WheelAct(LOW, HIGH, HIGH, LOW);
+    setMotor(100, 100);
     Serial.println("Go");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t back_handler(httpd_req_t *req){
-    WheelAct(HIGH, LOW, LOW, HIGH);
+    setMotor(-100, -100);
     Serial.println("Back");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t left_handler(httpd_req_t *req){
-    WheelAct(LOW, HIGH, LOW, HIGH);
+    setMotor(-100, 100);
     Serial.println("Left");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t right_handler(httpd_req_t *req){
-    WheelAct(HIGH, LOW, HIGH, LOW);
+    setMotor(100, -100);
     Serial.println("Right");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t stop_handler(httpd_req_t *req){
-    WheelAct(LOW, LOW, LOW, LOW);
+    setMotor(0, 0);
     Serial.println("Stop");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
@@ -459,6 +507,13 @@ void startCameraServer(){
         .user_ctx  = NULL
     };
 
+    httpd_uri_t ws_uri = {
+        .uri       = "/ws",
+        .method    = HTTP_GET,
+        .handler   = ws_handler,
+        .user_ctx  = NULL,
+        .is_websocket = true
+    };
 
     ra_filter_init(&ra_filter, 20);
     Serial.printf("Starting web server on port: '%d'", config.server_port);
@@ -479,6 +534,13 @@ void startCameraServer(){
     if (httpd_start(&stream_httpd, &config) == ESP_OK) {
         httpd_register_uri_handler(stream_httpd, &stream_uri);
     }
+
+    config.server_port += 1;
+    config.ctrl_port += 1;
+    Serial.printf("Starting WebSocket server on port: '%d'", config.server_port);
+    if (httpd_start(&ws_server, &config) == ESP_OK) {
+        httpd_register_uri_handler(ws_server, &ws_uri);
+    }
 }
 
 void WheelAct(int nLf, int nLb, int nRf, int nRb)
@@ -487,4 +549,43 @@ void WheelAct(int nLf, int nLb, int nRf, int nRb)
  digitalWrite(gpLb, nLb);
  digitalWrite(gpRf, nRf);
  digitalWrite(gpRb, nRb);
+}
+
+void Drive(int throttle, int steer) {
+    // throttle: -100 ~ +100
+    // steer:    -100 ~ +100
+
+    int left  = throttle + steer;
+    int right = throttle - steer;
+
+    left  = constrain(left,  -100, 100);
+    right = constrain(right, -100, 100);
+
+    setMotor(left, right);
+}
+
+void setMotor(int left, int right) {
+    setOneMotor(0, 1, left);   // Left
+    setOneMotor(2, 3, right);  // Right
+}
+
+void setOneMotor(int chF, int chB, int val) {
+    int pwm = abs(val) * 255 / 100;
+
+    if (val > 0) {
+        ledcWrite(chF, pwm);
+        ledcWrite(chB, 0);
+    } else if (val < 0) {
+        ledcWrite(chF, 0);
+        ledcWrite(chB, pwm);
+    } else {
+        ledcWrite(chF, 0);
+        ledcWrite(chB, 0);
+    }
+}
+
+void handle_control_message(char* msg) {
+    int t = 0, s = 0;
+    sscanf(msg, "{\"t\":%d,\"s\":%d}", &t, &s);
+    Drive(t, s);
 }
