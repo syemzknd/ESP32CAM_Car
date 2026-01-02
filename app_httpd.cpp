@@ -325,7 +325,6 @@ static esp_err_t index_handler(httpd_req_t *req){
 
 
 static esp_err_t go_handler(httpd_req_t *req){
-    // 原 right_handler 的动作
     WheelAct(LOW, HIGH, HIGH, LOW);
     Serial.println("Go");
     httpd_resp_set_type(req, "text/html");
@@ -333,7 +332,6 @@ static esp_err_t go_handler(httpd_req_t *req){
 }
 
 static esp_err_t back_handler(httpd_req_t *req){
-    // 原 left_handler 的动作
     WheelAct(HIGH, LOW, LOW, HIGH);
     Serial.println("Back");
     httpd_resp_set_type(req, "text/html");
@@ -341,7 +339,6 @@ static esp_err_t back_handler(httpd_req_t *req){
 }
 
 static esp_err_t left_handler(httpd_req_t *req){
-    // 原 back_handler 的动作
     WheelAct(LOW, HIGH, LOW, HIGH);
     Serial.println("Left");
     httpd_resp_set_type(req, "text/html");
@@ -349,7 +346,6 @@ static esp_err_t left_handler(httpd_req_t *req){
 }
 
 static esp_err_t right_handler(httpd_req_t *req){
-    // 原 go_handler 的动作
     WheelAct(HIGH, LOW, HIGH, LOW);
     Serial.println("Right");
     httpd_resp_set_type(req, "text/html");

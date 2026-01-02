@@ -19,8 +19,8 @@
 //#define CAMERA_MODEL_M5STACK_PSRAM
 #define CAMERA_MODEL_AI_THINKER
 
-const char* ssid = "MERCURY_77DA";   //WIFI Name
-const char* password = "Lss5201314";   //WIFI Password
+const char* ssid = "your_wifi_name";   //WIFI Name
+const char* password = "your_wifi _password";   //WIFI Password
 
 #if defined(CAMERA_MODEL_WROVER_KIT)
 #define PWDN_GPIO_NUM    -1
@@ -65,8 +65,9 @@ const char* password = "Lss5201314";   //WIFI Password
 #error "Camera model not selected"
 #endif
 
-// GPIO Setting   默认小车电机 & LED 引脚定义
-  
+// GPIO Setting   小车电机 & LED 引脚定义 
+//一般电机都会接错，烧录代码后对照操作与实际效果修改小车电机引脚定义
+//或者在app_http.cpp文件中的云端电机前后左右控制函数（go_handler，back_handler，left_handler，right_handler）中修改函数名，比如在操作界面中点击前进的实际效果是左转，那么就将左转和前进的函数名互换即可
 extern int gpLb = 2; 
 extern int gpLf = 14;
 extern int gpRb = 15;
@@ -120,11 +121,11 @@ void setup() {
   //init with high specs to pre-allocate larger buffers
   if(psramFound()){
     config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 30;   //数字越大 → 质量越低 → 越流畅  默认为10   这里默认为12
+    config.jpeg_quality = 30;   //数字越大 → 质量越低 → 越流畅   
     config.fb_count = 2;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 40;    //降低 JPEG 质量（立刻降延迟）  这里默认为15
+    config.jpeg_quality = 40;    //降低 JPEG 质量（立刻降延迟）  
     config.fb_count = 1;
   }
 
@@ -137,9 +138,9 @@ void setup() {
 
   //drop down frame size for higher initial frame rate
   sensor_t * s = esp_camera_sensor_get();
-  // s->set_framesize(s, FRAMESIZE_CIF);  //云端操作界面最高摄像头画质
-  // s->set_framesize(s, FRAMESIZE_QVGA); // 320x240（强烈推荐）
-  s->set_framesize(s, FRAMESIZE_QQVGA); // 160x120（丝滑）
+  // s->set_framesize(s, FRAMESIZE_CIF);  //最高摄像头画质
+  // s->set_framesize(s, FRAMESIZE_QVGA); // 320x240
+  s->set_framesize(s, FRAMESIZE_QQVGA); // 160x120
 
 
 
