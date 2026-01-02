@@ -342,32 +342,47 @@ static esp_err_t ws_handler(httpd_req_t *req)
 static esp_err_t index_handler(httpd_req_t *req){
     httpd_resp_set_type(req, "text/html");
     String page = "";
-     page += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0\">\n";
- page += "<script>var ws = new WebSocket('ws://' + window.location.hostname + ':82/ws');</script>";
- page += "<script>var throttle = 0; var steer = 0;</script>";
- page += "<script>function sendControl() { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({t: throttle, s: steer})); } }</script>";
- page += "<script>setInterval(sendControl, 50);</script>";  // Send every 20ms
- page += "<script>function updateThrottle(val) { throttle = val; }</script>";
- page += "<script>function updateSteer(val) { steer = val; }</script>";
- //page += "<p align=center><IMG SRC='http://" + WiFiAddr + ":81/stream' style='width:280px;'></p><br/><br/>";
- page += "<p align=center><IMG SRC='http://" + WiFiAddr + ":81/stream' style='width:300px; transform:rotate(180deg);'></p><br/><br/>";
- 
- page += "<p align=center> <input type='range' min='-100' max='100' value='0' oninput='updateThrottle(this.value)' style='width:200px;'></p>";
- page += "<p align=center>";
- page += "<button onclick=\"fetch('/go')\" style='width:80px;height:40px;'>前进</button>";
- page += "<button onclick=\"fetch('/back')\" style='width:80px;height:40px;'>后退</button>";
- page += "</p>";
- page += "<p align=center>";
- page += "<button onclick=\"fetch('/left')\" style='width:80px;height:40px;'>左转</button>";
- page += "<button onclick=\"fetch('/right')\" style='width:80px;height:40px;'>右转</button>";
- page += "<button onclick=\"fetch('/stop')\" style='width:80px;height:40px;'>停止</button>";
- page += "</p>";
-
- page += "<p align=center>";
- page += "<button onclick=\"fetch('/ledon')\" style=background-color:yellow;width:140px;height:40px><b>Light ON</b></button>";
- page += "<button onclick=\"fetch('/ledoff')\" style=background-color:yellow;width:140px;height:40px><b>Light OFF</b></button>";
- page += "</p>";
- 
+    page += "<!DOCTYPE html><html><head>";
+    page += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0\">";
+    page += "<style>body { display: flex; flex-direction: row; height: 100vh; margin: 0; font-size: 14px; } #left { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; } #center { flex: 2; display: flex; align-items: center; justify-content: center; } #right { flex: 1; display: flex; flex-direction: column; justify-content: space-around; align-items: center; } #joystick { width: 100%; height: 100%; border: 1px solid black; } #stream { width: 100%; height: 100%; object-fit: contain; } button { width: 100%; height: 50px; font-size: 12px; margin: 5px 0; }</style>";
+    page += "</head><body>";
+    page += "<div id=\"left\">";
+    page += "<button id=\"ledBtn\">Toggle LED</button>";
+    page += "<canvas id=\"joystick\" width=\"200\" height=\"200\"></canvas>";
+    page += "</div>";
+    page += "<div id=\"center\">";
+    page += "<img id=\"stream\" src=\"http://" + WiFiAddr + ":81/stream\">";
+    page += "</div>";
+    page += "<div id=\"right\">";
+    page += "<button id=\"stopBtn\">Stop</button>";
+    page += "<button id=\"accelBtn\">Accelerate</button>";
+    page += "<button id=\"decelBtn\">Decelerate</button>";
+    page += "</div>";
+    page += "<script>";
+    page += "if (window.innerHeight > window.innerWidth) {";
+    page += "  document.body.innerHTML = '<div style=\"display:flex; align-items:center; justify-content:center; height:100vh; font-size:24px;\">请横屏使用此应用</div>';";
+    page += "} else {";
+    page += "var ws = new WebSocket('ws://' + window.location.hostname + ':82/ws');";
+    page += "var throttle = 0, steer = 0, speedMultiplier = 1;";
+    page += "function sendControl() { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({t: Math.round(throttle * speedMultiplier), s: Math.round(steer * speedMultiplier)})); } }";
+    page += "setInterval(sendControl, 50);";
+    page += "var canvas = document.getElementById('joystick'), ctx = canvas.getContext('2d');";
+    page += "var centerX = canvas.width / 2, centerY = canvas.height / 2, radius = 80, stickRadius = 15, stickX = centerX, stickY = centerY;";
+    page += "function draw() { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, 2*Math.PI); ctx.stroke(); ctx.beginPath(); ctx.arc(stickX, stickY, stickRadius, 0, 2*Math.PI); ctx.fill(); } draw();";
+    page += "var isDragging = false;";
+    page += "function startDrag(e) { isDragging = true; updateStick(e); e.preventDefault(); }";
+    page += "function drag(e) { if (isDragging) updateStick(e); e.preventDefault(); }";
+    page += "function stopDrag() { isDragging = false; stickX = centerX; stickY = centerY; throttle = 0; steer = 0; draw(); }";
+    page += "function updateStick(e) { var rect = canvas.getBoundingClientRect(), x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top, dx = x - centerX, dy = y - centerY, dist = Math.sqrt(dx*dx + dy*dy); if (dist > radius) { dx *= radius/dist; dy *= radius/dist; } stickX = centerX + dx; stickY = centerY + dy; throttle = dx / radius * 100; steer = dy / radius * 100; draw(); }";
+    page += "canvas.addEventListener('mousedown', startDrag); canvas.addEventListener('mousemove', drag); canvas.addEventListener('mouseup', stopDrag);";
+    page += "canvas.addEventListener('touchstart', startDrag); canvas.addEventListener('touchmove', drag); canvas.addEventListener('touchend', stopDrag);";
+    page += "document.getElementById('ledBtn').onclick = () => fetch('/toggleled');";
+    page += "document.getElementById('stopBtn').onclick = () => { fetch('/stop'); throttle = 0; steer = 0; stickX = centerX; stickY = centerY; draw(); };";
+    page += "document.getElementById('accelBtn').onclick = () => { speedMultiplier = Math.min(speedMultiplier + 0.5, 3); };";
+    page += "document.getElementById('decelBtn').onclick = () => { speedMultiplier = Math.max(speedMultiplier - 0.5, 0.2); };";
+    page += "}";
+    page += "</script>";
+    page += "</body></html>";
     return httpd_resp_send(req, &page[0], strlen(&page[0]));
 }
 
@@ -407,15 +422,11 @@ static esp_err_t stop_handler(httpd_req_t *req){
     return httpd_resp_send(req, "OK", 2);
 }
 
-static esp_err_t ledon_handler(httpd_req_t *req){
-    digitalWrite(gpLed, HIGH);
-    Serial.println("LED ON");
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, "OK", 2);
-}
-static esp_err_t ledoff_handler(httpd_req_t *req){
-    digitalWrite(gpLed, LOW);
-    Serial.println("LED OFF");
+static esp_err_t toggleled_handler(httpd_req_t *req){
+    static bool led_state = false;
+    led_state = !led_state;
+    digitalWrite(gpLed, led_state ? HIGH : LOW);
+    Serial.println(led_state ? "LED ON" : "LED OFF");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
@@ -458,17 +469,10 @@ void startCameraServer(){
         .user_ctx  = NULL
     };
     
-    httpd_uri_t ledon_uri = {
-        .uri       = "/ledon",
+    httpd_uri_t toggleled_uri = {
+        .uri       = "/toggleled",
         .method    = HTTP_GET,
-        .handler   = ledon_handler,
-        .user_ctx  = NULL
-    };
-    
-    httpd_uri_t ledoff_uri = {
-        .uri       = "/ledoff",
-        .method    = HTTP_GET,
-        .handler   = ledoff_handler,
+        .handler   = toggleled_handler,
         .user_ctx  = NULL
     };
 
@@ -524,8 +528,7 @@ void startCameraServer(){
         httpd_register_uri_handler(camera_httpd, &stop_uri); 
         httpd_register_uri_handler(camera_httpd, &left_uri);
         httpd_register_uri_handler(camera_httpd, &right_uri);
-        httpd_register_uri_handler(camera_httpd, &ledon_uri);
-        httpd_register_uri_handler(camera_httpd, &ledoff_uri);
+        httpd_register_uri_handler(camera_httpd, &toggleled_uri);
     }
 
     config.server_port += 1;

@@ -157,7 +157,7 @@ void setup() {
 
 
   // 修正画面方向
-  s->set_vflip(s, 1);    // 垂直翻转
+  // s->set_vflip(s, 1);    // 垂直翻转
   // s->set_hmirror(s, 1);  // 水平镜像
 
 
