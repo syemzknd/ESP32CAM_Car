@@ -19,8 +19,8 @@
 //#define CAMERA_MODEL_M5STACK_PSRAM
 #define CAMERA_MODEL_AI_THINKER
 
-const char* ssid = "your_wifi_name";   //WIFI Name
-const char* password = "your_wifi _password";   //WIFI Password
+const char* ssid = "MERCURY_77DA";   //your WIFI Name
+const char* password = "Lss5201314";   //your WIFI Password
 
 #if defined(CAMERA_MODEL_WROVER_KIT)
 #define PWDN_GPIO_NUM    -1
@@ -120,9 +120,9 @@ void setup() {
   config.pixel_format = PIXFORMAT_JPEG;
   //init with high specs to pre-allocate larger buffers
   if(psramFound()){
-    config.frame_size = FRAMESIZE_UXGA;
+    config.frame_size = FRAMESIZE_QVGA;   // 320x240 for stability
     config.jpeg_quality = 30;   //数字越大 → 质量越低 → 越流畅   
-    config.fb_count = 2;
+    config.fb_count = 1;  // Reduce to 1 for less memory usage
   } else {
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 40;    //降低 JPEG 质量（立刻降延迟）  
@@ -168,7 +168,7 @@ void setup() {
 
 void loop() 
 {
-  
+  delay(10);  // Prevent CPU hogging and allow task scheduling
 // put your main code here, to run repeatedly:
 
 }
