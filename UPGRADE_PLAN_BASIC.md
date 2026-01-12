@@ -288,25 +288,25 @@ void loop()
 
 ## 📋 实施检查清单
 
-### 立即实施（阶段一）
+### 立即实施（阶段一）✅ 已完成
 
-- [ ] 添加 WiFi 省电禁用代码
-- [ ] 添加 `config.grab_mode = CAMERA_GRAB_LATEST`
-- [ ] 移除 `stream_handler` 中的串口日志
-- [ ] 移除各 handler 中的 `Serial.println`
-- [ ] 调整 `jpeg_quality` 到 50
-- [ ] 设置 `fb_count = 2`
+- [x] 添加 WiFi 省电禁用代码
+- [x] 添加 `config.grab_mode = CAMERA_GRAB_LATEST`
+- [x] 移除 `stream_handler` 中的串口日志
+- [x] 移除各 handler 中的 `Serial.println`
+- [x] 调整 `jpeg_quality` 到 50
+- [x] 设置 `fb_count = 2`
 
-### 中等优化（阶段二）
+### 中等优化（阶段二）✅ 已完成
 
-- [ ] 实现帧率限制机制
-- [ ] 优化前端控制发送逻辑
-- [ ] 调整 HTTP 服务器配置
+- [x] 实现帧率限制机制
+- [x] 优化前端控制发送逻辑
+- [x] 调整 HTTP 服务器配置
+- [x] 添加 WebSocket 自动重连
 
-### 进一步优化（阶段三）
+### 进一步优化（阶段三）✅ 已完成
 
-- [ ] 添加任务优先级调整
-- [ ] 优化 loop() 函数
+- [x] 优化 loop() 函数（使用 FreeRTOS 延迟）
 
 ---
 
