@@ -204,11 +204,13 @@ void setup() {
     WiFi.setTxPower(WIFI_POWER_19_5dBm);     // 最大发射功率
     Serial.println("WiFi power saving disabled, max TX power set");
 
+    // 先设置 WiFiAddr，再启动服务器（网页生成需要此变量）
+    WiFiAddr = WiFi.localIP().toString();
+
     startCameraServer();
 
     Serial.print("Camera Ready! Use 'http://");
     Serial.print(WiFi.localIP());
-    WiFiAddr = WiFi.localIP().toString();
     Serial.println("' to connect");
   } else {
     Serial.println("");
