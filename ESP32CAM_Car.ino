@@ -7,6 +7,7 @@
 
 #include "esp_camera.h"
 #include <WiFi.h>
+#include "esp_wifi.h"
 
 //
 // WARNING!!! Make sure that you have either selected ESP32 Wrover Module,
@@ -21,6 +22,25 @@
 
 const char* ssid = "MERCURY_77DA";   //your WIFI Name
 const char* password = "Lss5201314";   //your WIFI Password
+
+#define BATTERY_PIN -1  // ADC pin for battery voltage, set to -1 if no voltage divider used
+float batteryVoltageDivider = 1.0;  // Voltage divider ratio (adjust based on your circuit)
+
+float getBatteryVoltage() {
+    if (BATTERY_PIN == -1) {
+        return 3.7;  // Assume full battery if no monitoring
+    }
+    int adcValue = analogRead(BATTERY_PIN);
+    float voltage = (adcValue / 4095.0) * 3.3 * batteryVoltageDivider;
+    return voltage;
+}
+
+int getBatteryPercent() {
+    float voltage = getBatteryVoltage();
+    // Assuming Li-ion battery: 3.0V empty, 4.2V full
+    int percent = (voltage - 3.0) / (4.2 - 3.0) * 100;
+    return constrain(percent, 0, 100);
+}
 
 #if defined(CAMERA_MODEL_WROVER_KIT)
 #define PWDN_GPIO_NUM    -1
@@ -90,6 +110,10 @@ void setup() {
   pinMode(gpRf, OUTPUT); //Right Backward
   pinMode(gpLed, OUTPUT); //Light
 
+  // ADC setup for battery monitoring
+  analogReadResolution(12);  // 12-bit resolution
+  pinMode(BATTERY_PIN, INPUT);
+
   // PWM setup for continuous motor control
   #define PWM_FREQ  1000
   #define PWM_RES   8   // 0~255
@@ -130,14 +154,19 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  //init with high specs to pre-allocate larger buffers
+  
+  // ===== 低延迟优化配置 =====
+  // CAMERA_GRAB_LATEST: 只获取最新帧，丢弃旧帧，消除帧缓冲积压延迟
+  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.fb_location = CAMERA_FB_IN_PSRAM;  // 帧缓冲放在 PSRAM
+  
   if(psramFound()){
     config.frame_size = FRAMESIZE_QVGA;   // 320x240 for stability
-    config.jpeg_quality = 30;   //数字越大 → 质量越低 → 越流畅   
-    config.fb_count = 1;  // Reduce to 1 for less memory usage
+    config.jpeg_quality = 50;   // 数字越大 → 质量越低 → 编码更快 → 延迟更低
+    config.fb_count = 2;        // 双缓冲：采集和发送并行
   } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 40;    //降低 JPEG 质量（立刻降延迟）  
+    config.frame_size = FRAMESIZE_QVGA;
+    config.jpeg_quality = 55;   // 无PSRAM时进一步降低质量
     config.fb_count = 1;
   }
 
@@ -163,24 +192,65 @@ void setup() {
 
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  int attempts = 0;
+  const int maxAttempts = 20;  // 10 seconds (20 * 500ms)
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
     delay(500);
     Serial.print(".");
+    attempts++;
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
 
-  startCameraServer();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("");
+    Serial.println("WiFi connected");
 
-  Serial.print("Camera Ready! Use 'http://");
-  Serial.print(WiFi.localIP());
-  WiFiAddr = WiFi.localIP().toString();
-  Serial.println("' to connect");
+    // ===== WiFi 低延迟优化 =====
+    WiFi.setSleep(false);                    // 禁用 WiFi 省电模式
+    esp_wifi_set_ps(WIFI_PS_NONE);           // ESP-IDF 级别禁用省电
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);     // 最大发射功率
+    Serial.println("WiFi power saving disabled, max TX power set");
+
+    startCameraServer();
+
+    Serial.print("Camera Ready! Use 'http://");
+    Serial.print(WiFi.localIP());
+    WiFiAddr = WiFi.localIP().toString();
+    Serial.println("' to connect");
+  } else {
+    Serial.println("");
+    Serial.println("Failed to connect to WiFi after multiple attempts. Restarting...");
+    delay(2000);
+    ESP.restart();  // Restart ESP32 to try again
+  }
 }
 
 void loop() 
 {
-  delay(10);  // Prevent CPU hogging and allow task scheduling
-// put your main code here, to run repeatedly:
-
+  // ===== 优化：减少 WiFi 检查频率，使用 FreeRTOS 延迟释放 CPU =====
+  static unsigned long lastWiFiCheck = 0;
+  unsigned long now = millis();
+  
+  if (now - lastWiFiCheck > 5000) {  // 每5秒检查一次 WiFi
+    lastWiFiCheck = now;
+    
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi disconnected, reconnecting...");
+      WiFi.reconnect();
+      
+      unsigned long startAttemptTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000) {
+        vTaskDelay(pdMS_TO_TICKS(500));  // FreeRTOS 延迟，释放 CPU
+        Serial.print(".");
+      }
+      
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("Reconnected to WiFi");
+        // 重新应用低延迟设置
+        WiFi.setSleep(false);
+        esp_wifi_set_ps(WIFI_PS_NONE);
+      }
+    }
+  }
+  
+  vTaskDelay(pdMS_TO_TICKS(100));  // 使用 FreeRTOS 延迟，释放 CPU 给其他任务
 }

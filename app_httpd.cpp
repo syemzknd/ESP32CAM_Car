@@ -17,6 +17,8 @@ extern int gpRf;
 extern int gpLed;
 extern String WiFiAddr;
 
+extern int getBatteryPercent();
+
 void WheelAct(int nLf, int nLb, int nRf, int nRb);
 void Drive(int throttle, int steer);
 void setMotor(int left, int right);
@@ -89,11 +91,9 @@ static size_t jpg_encode_stream(void * arg, size_t index, const void* data, size
 static esp_err_t capture_handler(httpd_req_t *req){
     camera_fb_t * fb = NULL;
     esp_err_t res = ESP_OK;
-    int64_t fr_start = esp_timer_get_time();
 
     fb = esp_camera_fb_get();
     if (!fb) {
-        Serial.printf("Camera capture failed");
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -112,8 +112,7 @@ static esp_err_t capture_handler(httpd_req_t *req){
         fb_len = jchunk.len;
     }
     esp_camera_fb_return(fb);
-    int64_t fr_end = esp_timer_get_time();
-    Serial.printf("JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start)/1000));
+    // 注意：移除了串口日志以减少延迟
     return res;
 }
 
@@ -124,10 +123,9 @@ static esp_err_t stream_handler(httpd_req_t *req){
     uint8_t * _jpg_buf = NULL;
     char * part_buf[64];
 
-    static int64_t last_frame = 0;
-    if(!last_frame) {
-        last_frame = esp_timer_get_time();
-    }
+    // ===== 低延迟优化：帧率控制 =====
+    const int64_t MIN_FRAME_INTERVAL = 40000;  // 40ms = 最大25fps
+    int64_t last_frame = esp_timer_get_time();
 
     res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
     if(res != ESP_OK){
@@ -135,34 +133,49 @@ static esp_err_t stream_handler(httpd_req_t *req){
     }
 
     while(true){
+        // 帧率限制：防止发送过快导致网络拥塞
+        int64_t now = esp_timer_get_time();
+        int64_t elapsed = now - last_frame;
+        if (elapsed < MIN_FRAME_INTERVAL) {
+            vTaskDelay(pdMS_TO_TICKS((MIN_FRAME_INTERVAL - elapsed) / 1000));
+        }
+        last_frame = esp_timer_get_time();
+
         fb = esp_camera_fb_get();
         if (!fb) {
-            Serial.printf("Camera capture failed");
             res = ESP_FAIL;
-        } else {
-            if(fb->format != PIXFORMAT_JPEG){
-                bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-                esp_camera_fb_return(fb);
-                fb = NULL;
-                if(!jpeg_converted){
-                    Serial.printf("JPEG compression failed");
-                    res = ESP_FAIL;
-                }
-            } else {
-                _jpg_buf_len = fb->len;
-                _jpg_buf = fb->buf;
-            }
+            break;
         }
+
+        // 直接使用 JPEG 数据（CAMERA_GRAB_LATEST 确保是最新帧）
+        if(fb->format != PIXFORMAT_JPEG){
+            bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+            esp_camera_fb_return(fb);
+            fb = NULL;
+            if(!jpeg_converted){
+                res = ESP_FAIL;
+                break;
+            }
+        } else {
+            _jpg_buf_len = fb->len;
+            _jpg_buf = fb->buf;
+        }
+
+        // 发送帧头
         if(res == ESP_OK){
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
             res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
         }
+        // 发送图像数据
         if(res == ESP_OK){
             res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
         }
+        // 发送边界
         if(res == ESP_OK){
             res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
         }
+
+        // 释放帧缓冲
         if(fb){
             esp_camera_fb_return(fb);
             fb = NULL;
@@ -171,23 +184,13 @@ static esp_err_t stream_handler(httpd_req_t *req){
             free(_jpg_buf);
             _jpg_buf = NULL;
         }
+
         if(res != ESP_OK){
             break;
         }
-        int64_t fr_end = esp_timer_get_time();
-
-        int64_t frame_time = fr_end - last_frame;
-        last_frame = fr_end;
-        frame_time /= 1000;
-        uint32_t avg_frame_time = ra_filter_run(&ra_filter, frame_time);
-        Serial.printf("MJPG: %uB %ums (%.1ffps), AVG: %ums (%.1ffps)"
-            ,(uint32_t)(_jpg_buf_len),
-            (uint32_t)frame_time, 1000.0 / (uint32_t)frame_time,
-            avg_frame_time, 1000.0 / avg_frame_time
-        );
+        // 注意：移除了 Serial.printf 日志输出以减少延迟
     }
 
-    last_frame = 0;
     return res;
 }
 
@@ -302,6 +305,15 @@ static esp_err_t status_handler(httpd_req_t *req){
     return httpd_resp_send(req, json_response, strlen(json_response));
 }
 
+static esp_err_t battery_handler(httpd_req_t *req){
+    extern int getBatteryPercent();
+    char json_response[64];
+    sprintf(json_response, "{\"percent\":%d}", getBatteryPercent());
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, json_response, strlen(json_response));
+}
+
 static esp_err_t ws_handler(httpd_req_t *req)
 {
     if (req->method == HTTP_GET) {
@@ -344,9 +356,10 @@ static esp_err_t index_handler(httpd_req_t *req){
     String page = "";
     page += "<!DOCTYPE html><html><head>";
     page += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0\">";
-    page += "<style>body { display: flex; flex-direction: row; height: 100vh; margin: 0; font-size: 14px; overflow: hidden; } #left { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; } #center { flex: 2; display: flex; align-items: center; justify-content: center; } #right { flex: 1; display: flex; flex-direction: column; justify-content: space-around; align-items: center; } #joystick { width: 100%; height: 100%; border: 1px solid black; } #stream { width: 100%; height: 100%; object-fit: contain; } button { width: 100%; height: 50px; font-size: 12px; margin: 5px 0; } #fullscreenBtn { position: fixed; top: 10px; right: 10px; z-index: 1000; width: auto; height: auto; padding: 5px 10px; }</style>";
+    page += "<style>body { display: flex; flex-direction: row; height: 100vh; margin: 0; font-size: 14px; overflow: hidden; } #left { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-between; } #center { flex: 2; display: flex; align-items: center; justify-content: center; } #right { flex: 1; display: flex; flex-direction: column; justify-content: space-around; align-items: center; } #joystick { width: 100%; height: 100%; border: 1px solid black; } #stream { width: 100%; height: 100%; object-fit: contain; } button { width: 100%; height: 50px; font-size: 12px; margin: 5px 0; } #fullscreenBtn { position: fixed; top: 10px; right: 10px; z-index: 1000; width: auto; height: auto; padding: 5px 10px; } #battery { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; z-index: 1000; }</style>";
     page += "</head><body>";
     page += "<button id=\"fullscreenBtn\">全屏</button>";
+    page += "<div id=\"battery\">Battery: <span id=\"batteryPercent\">--%</span></div>";
     page += "<div id=\"left\">";
     page += "<button id=\"ledBtn\">Toggle LED</button>";
     page += "<canvas id=\"joystick\" width=\"200\" height=\"200\"></canvas>";
@@ -365,8 +378,20 @@ static esp_err_t index_handler(httpd_req_t *req){
     page += "} else {";
     page += "var ws = new WebSocket('ws://' + window.location.hostname + ':82/ws');";
     page += "var throttle = 0, steer = 0, speedMultiplier = 1;";
-    page += "function sendControl() { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({t: Math.round(throttle * speedMultiplier), s: Math.round(steer * speedMultiplier)})); } }";
-    page += "setInterval(sendControl, 50);";
+    // ===== 低延迟优化：变化触发 + 节流发送 =====
+    page += "var lastSent = 0, lastThrottle = 0, lastSteer = 0;";
+    page += "function sendControl() {";
+    page += "  var now = Date.now();";
+    page += "  var t = Math.round(throttle * speedMultiplier);";
+    page += "  var s = Math.round(steer * speedMultiplier);";
+    page += "  if ((t !== lastThrottle || s !== lastSteer) && (now - lastSent > 25)) {";
+    page += "    if (ws.readyState === WebSocket.OPEN) {";
+    page += "      ws.send(JSON.stringify({t: t, s: s}));";
+    page += "      lastThrottle = t; lastSteer = s; lastSent = now;";
+    page += "    }";
+    page += "  }";
+    page += "}";
+    page += "setInterval(sendControl, 20);";  // 20ms检查间隔，仅在值变化时发送
     page += "var canvas = document.getElementById('joystick'), ctx = canvas.getContext('2d');";
     page += "var centerX = canvas.width / 2, centerY = canvas.height / 2, radius = 80, stickRadius = 15, stickX = centerX, stickY = centerY;";
     page += "function draw() { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, 2*Math.PI); ctx.stroke(); ctx.beginPath(); ctx.arc(stickX, stickY, stickRadius, 0, 2*Math.PI); ctx.fill(); } draw();";
@@ -404,6 +429,15 @@ static esp_err_t index_handler(httpd_req_t *req){
     page += "document.addEventListener('fullscreenchange', updateFullscreenBtn);";
     page += "document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);";
     page += "document.addEventListener('msfullscreenchange', updateFullscreenBtn);";
+    page += "function updateBattery() {";
+    page += "    fetch('/battery').then(response => response.json()).then(data => {";
+    page += "        document.getElementById('batteryPercent').textContent = data.percent + '%';";
+    page += "    }).catch(err => console.log('Battery fetch error:', err));";
+    page += "}";
+    page += "updateBattery(); setInterval(updateBattery, 10000);";
+    // ===== WebSocket 自动重连 =====
+    page += "ws.onclose = function() { setTimeout(function() { ws = new WebSocket('ws://' + window.location.hostname + ':82/ws'); }, 1000); };";
+    page += "ws.onerror = function() { ws.close(); };";
     page += "}";
     page += "</script>";
     page += "</body></html>";
@@ -413,35 +447,30 @@ static esp_err_t index_handler(httpd_req_t *req){
 
 static esp_err_t go_handler(httpd_req_t *req){
     setMotor(100, 100);
-    Serial.println("Go");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t back_handler(httpd_req_t *req){
     setMotor(-100, -100);
-    Serial.println("Back");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t left_handler(httpd_req_t *req){
     setMotor(-100, 100);
-    Serial.println("Left");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t right_handler(httpd_req_t *req){
     setMotor(100, -100);
-    Serial.println("Right");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t stop_handler(httpd_req_t *req){
     setMotor(0, 0);
-    Serial.println("Stop");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
@@ -450,13 +479,18 @@ static esp_err_t toggleled_handler(httpd_req_t *req){
     static bool led_state = false;
     led_state = !led_state;
     digitalWrite(gpLed, led_state ? HIGH : LOW);
-    Serial.println(led_state ? "LED ON" : "LED OFF");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 void startCameraServer(){
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    
+    // ===== HTTP 服务器低延迟优化 =====
+    config.send_wait_timeout = 5;     // 减少发送超时（秒）
+    config.recv_wait_timeout = 5;     // 减少接收超时（秒）
+    config.max_uri_handlers = 16;     // 足够的 URI 处理器
+    config.stack_size = 8192;         // 增加栈大小确保稳定
 
     httpd_uri_t go_uri = {
         .uri       = "/go",
@@ -514,6 +548,13 @@ void startCameraServer(){
         .user_ctx  = NULL
     };
 
+    httpd_uri_t battery_uri = {
+        .uri       = "/battery",
+        .method    = HTTP_GET,
+        .handler   = battery_handler,
+        .user_ctx  = NULL
+    };
+
     httpd_uri_t cmd_uri = {
         .uri       = "/control",
         .method    = HTTP_GET,
@@ -553,6 +594,8 @@ void startCameraServer(){
         httpd_register_uri_handler(camera_httpd, &left_uri);
         httpd_register_uri_handler(camera_httpd, &right_uri);
         httpd_register_uri_handler(camera_httpd, &toggleled_uri);
+        httpd_register_uri_handler(camera_httpd, &status_uri);
+        httpd_register_uri_handler(camera_httpd, &battery_uri);
     }
 
     config.server_port += 1;
