@@ -100,16 +100,22 @@ void setup() {
   pinMode(BATTERY_PIN, INPUT);
 
   // PWM setup for continuous motor control
+  // 注意：使用通道 4-7，避免与摄像头的 LEDC_CHANNEL_0 冲突
   #define PWM_FREQ  1000
   #define PWM_RES   8   // 0~255
-  ledcSetup(0, PWM_FREQ, PWM_RES); // Left Forward
-  ledcSetup(1, PWM_FREQ, PWM_RES); // Left Backward
-  ledcSetup(2, PWM_FREQ, PWM_RES); // Right Forward
-  ledcSetup(3, PWM_FREQ, PWM_RES); // Right Backward
-  ledcAttachPin(gpLf, 0);
-  ledcAttachPin(gpLb, 1);
-  ledcAttachPin(gpRf, 2);
-  ledcAttachPin(gpRb, 3);
+  #define MOTOR_CH_LF  4  // Left Forward
+  #define MOTOR_CH_LB  5  // Left Backward
+  #define MOTOR_CH_RF  6  // Right Forward
+  #define MOTOR_CH_RB  7  // Right Backward
+  
+  ledcSetup(MOTOR_CH_LF, PWM_FREQ, PWM_RES);
+  ledcSetup(MOTOR_CH_LB, PWM_FREQ, PWM_RES);
+  ledcSetup(MOTOR_CH_RF, PWM_FREQ, PWM_RES);
+  ledcSetup(MOTOR_CH_RB, PWM_FREQ, PWM_RES);
+  ledcAttachPin(gpLf, MOTOR_CH_LF);
+  ledcAttachPin(gpLb, MOTOR_CH_LB);
+  ledcAttachPin(gpRf, MOTOR_CH_RF);
+  ledcAttachPin(gpRb, MOTOR_CH_RB);
 
   //initialize
   digitalWrite(gpLb, LOW);

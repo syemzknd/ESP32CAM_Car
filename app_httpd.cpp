@@ -635,8 +635,8 @@ void Drive(int throttle, int steer) {
 }
 
 void setMotor(int left, int right) {
-    setOneMotor(0, 1, left);   // Left
-    setOneMotor(2, 3, right);  // Right
+    setOneMotor(4, 5, left);   // Left: channels 4, 5
+    setOneMotor(6, 7, right);  // Right: channels 6, 7
 }
 
 void setOneMotor(int chF, int chB, int val) {
