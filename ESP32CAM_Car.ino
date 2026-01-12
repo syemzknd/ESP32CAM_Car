@@ -15,14 +15,23 @@
 //
 // Adafruit ESP32 Feather
 
-// Select camera model
-//#define CAMERA_MODEL_WROVER_KIT
-//#define CAMERA_MODEL_M5STACK_PSRAM
-#define CAMERA_MODEL_AI_THINKER
+// ===== WiFi 配置 =====
+const char* ssid = "MERCURY_77DA";   //你的WiFi名称
+const char* password = "Lss5201314";   //你的WiFi密码
 
-const char* ssid = "MERCURY_77DA";   //your WIFI Name
-const char* password = "Lss5201314";   //your WIFI Password
+// ===== 静态IP配置 (固定地址，无需串口查看) =====
+// 设置为 true 使用静态IP，设置为 false 使用DHCP自动分配
+#define USE_STATIC_IP true
 
+// 静态IP地址配置 (根据你的路由器网段修改)
+// 手机浏览器直接访问: http://192.168.1.100
+IPAddress staticIP(192, 168, 1, 100);      // ESP32的固定IP地址
+IPAddress gateway(192, 168, 1, 1);         // 路由器网关地址
+IPAddress subnet(255, 255, 255, 0);        // 子网掩码
+IPAddress dns1(192, 168, 1, 1);            // DNS服务器1 (通常与网关相同)
+IPAddress dns2(8, 8, 8, 8);                // DNS服务器2 (Google DNS)
+
+// ===== 电池监测配置 =====
 #define BATTERY_PIN -1  // ADC pin for battery voltage, set to -1 if no voltage divider used
 float batteryVoltageDivider = 1.0;  // Voltage divider ratio (adjust based on your circuit)
 
@@ -42,27 +51,7 @@ int getBatteryPercent() {
     return constrain(percent, 0, 100);
 }
 
-#if defined(CAMERA_MODEL_WROVER_KIT)
-#define PWDN_GPIO_NUM    -1
-#define RESET_GPIO_NUM   -1
-#define XCLK_GPIO_NUM    21
-#define SIOD_GPIO_NUM    26
-#define SIOC_GPIO_NUM    27
-
-#define Y9_GPIO_NUM      35
-#define Y8_GPIO_NUM      34
-#define Y7_GPIO_NUM      39
-#define Y6_GPIO_NUM      36
-#define Y5_GPIO_NUM      19
-#define Y4_GPIO_NUM      18
-#define Y3_GPIO_NUM       5
-#define Y2_GPIO_NUM       4
-#define VSYNC_GPIO_NUM   25
-#define HREF_GPIO_NUM    23
-#define PCLK_GPIO_NUM    22
-
-
-#elif defined(CAMERA_MODEL_AI_THINKER)
+// ===== 摄像头引脚配置 (AI-THINKER ESP32-CAM) =====
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0   // 摄像头时钟
@@ -81,20 +70,16 @@ int getBatteryPercent() {
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-#else
-#error "Camera model not selected"
-#endif
-
 // GPIO Setting   小车电机 & LED 引脚定义 
 //一般电机都会接错，烧录代码后对照操作与实际效果修改小车电机引脚定义
 //或者在app_http.cpp文件中的云端电机前后左右控制函数（go_handler，back_handler，left_handler，right_handler）中修改函数名，比如在操作界面中点击前进的实际效果是左转，那么就将左转和前进的函数名互换即可
-extern int gpLb = 2; 
-extern int gpLf = 14;
-extern int gpRb = 15;
-extern int gpRf = 13;
+int gpLb = 2; 
+int gpLf = 14;
+int gpRb = 15;
+int gpRf = 13;
 
-extern int gpLed =  4; // Light
-extern String WiFiAddr ="";
+int gpLed =  4; // Light
+String WiFiAddr ="";
 
 void startCameraServer();
 
@@ -148,8 +133,8 @@ void setup() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM;
-  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
@@ -189,6 +174,15 @@ void setup() {
   // s->set_vflip(s, 1);    // 垂直翻转
   // s->set_hmirror(s, 1);  // 水平镜像
 
+
+  // 配置静态IP (如果启用)
+  #if USE_STATIC_IP
+    if (!WiFi.config(staticIP, gateway, subnet, dns1, dns2)) {
+      Serial.println("Static IP configuration failed!");
+    } else {
+      Serial.println("Static IP configured: " + staticIP.toString());
+    }
+  #endif
 
   WiFi.begin(ssid, password);
 
