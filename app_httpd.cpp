@@ -635,12 +635,14 @@ void Drive(int throttle, int steer) {
 }
 
 void setMotor(int left, int right) {
+    Serial.printf("[Motor] L=%d, R=%d\n", left, right);
     setOneMotor(4, 5, left);   // Left: channels 4, 5
     setOneMotor(6, 7, right);  // Right: channels 6, 7
 }
 
 void setOneMotor(int chF, int chB, int val) {
     int pwm = abs(val) * 255 / 100;
+    Serial.printf("[PWM] chF=%d, chB=%d, val=%d, pwm=%d\n", chF, chB, val, pwm);
 
     if (val > 0) {
         ledcWrite(chF, pwm);

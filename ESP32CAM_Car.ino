@@ -99,25 +99,10 @@ void setup() {
   analogReadResolution(12);  // 12-bit resolution
   pinMode(BATTERY_PIN, INPUT);
 
-  // PWM setup for continuous motor control
-  // 注意：使用通道 4-7，避免与摄像头的 LEDC_CHANNEL_0 冲突
-  #define PWM_FREQ  1000
-  #define PWM_RES   8   // 0~255
-  #define MOTOR_CH_LF  4  // Left Forward
-  #define MOTOR_CH_LB  5  // Left Backward
-  #define MOTOR_CH_RF  6  // Right Forward
-  #define MOTOR_CH_RB  7  // Right Backward
-  
-  ledcSetup(MOTOR_CH_LF, PWM_FREQ, PWM_RES);
-  ledcSetup(MOTOR_CH_LB, PWM_FREQ, PWM_RES);
-  ledcSetup(MOTOR_CH_RF, PWM_FREQ, PWM_RES);
-  ledcSetup(MOTOR_CH_RB, PWM_FREQ, PWM_RES);
-  ledcAttachPin(gpLf, MOTOR_CH_LF);
-  ledcAttachPin(gpLb, MOTOR_CH_LB);
-  ledcAttachPin(gpRf, MOTOR_CH_RF);
-  ledcAttachPin(gpRb, MOTOR_CH_RB);
+  // 注意：电机 PWM 初始化移到摄像头初始化之后，避免被覆盖
+  // 这里只设置 GPIO 为输出模式，PWM 配置在后面
 
-  //initialize
+  //initialize - 先设为低电平
   digitalWrite(gpLb, LOW);
   digitalWrite(gpLf, LOW);
   digitalWrite(gpRb, LOW);
@@ -167,6 +152,7 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
+  Serial.println("Camera initialized successfully!");
 
   //drop down frame size for higher initial frame rate
   sensor_t * s = esp_camera_sensor_get();
@@ -174,7 +160,41 @@ void setup() {
   // s->set_framesize(s, FRAMESIZE_QVGA); // 320x240
   s->set_framesize(s, FRAMESIZE_QQVGA); // 160x120
 
-
+  // ===== 电机 PWM 初始化 (必须在摄像头初始化之后！) =====
+  // 摄像头使用 LEDC Timer 0，电机使用 Timer 1 避免冲突
+  Serial.println("Initializing motor PWM...");
+  
+  // 使用 ledcAttach 新 API (Arduino ESP32 Core 3.x)
+  // 或者使用旧 API: ledcSetup + ledcAttachPin
+  #define MOTOR_PWM_FREQ  1000  // 1kHz
+  #define MOTOR_PWM_RES   8     // 8-bit (0-255)
+  
+  // 电机通道定义 (使用 4-7 避免与摄像头通道 0 冲突)
+  #define MOTOR_CH_LF  4  // Left Forward
+  #define MOTOR_CH_LB  5  // Left Backward
+  #define MOTOR_CH_RF  6  // Right Forward
+  #define MOTOR_CH_RB  7  // Right Backward
+  
+  // 配置 PWM 通道 (使用 Timer 1)
+  ledcSetup(MOTOR_CH_LF, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ledcSetup(MOTOR_CH_LB, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ledcSetup(MOTOR_CH_RF, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  ledcSetup(MOTOR_CH_RB, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+  
+  // 绑定 GPIO 到 PWM 通道
+  ledcAttachPin(gpLf, MOTOR_CH_LF);
+  ledcAttachPin(gpLb, MOTOR_CH_LB);
+  ledcAttachPin(gpRf, MOTOR_CH_RF);
+  ledcAttachPin(gpRb, MOTOR_CH_RB);
+  
+  // 初始化电机为停止状态
+  ledcWrite(MOTOR_CH_LF, 0);
+  ledcWrite(MOTOR_CH_LB, 0);
+  ledcWrite(MOTOR_CH_RF, 0);
+  ledcWrite(MOTOR_CH_RB, 0);
+  
+  Serial.println("Motor PWM initialized!");
+  Serial.printf("Motor pins: LF=%d, LB=%d, RF=%d, RB=%d\n", gpLf, gpLb, gpRf, gpRb);
 
   // 修正画面方向
   // s->set_vflip(s, 1);    // 垂直翻转
